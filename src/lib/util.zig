@@ -12,7 +12,12 @@ const std = @import("std");
 ///
 /// # Returns
 /// The Nth index of a value when present in a slice, null otherwise
-pub fn index_of(comptime T: type, slice: []const T, value: T, occ: u8) ?usize {
+pub fn index_of(
+    comptime T: type,
+    slice: []const T,
+    value: T,
+    occ: u8,
+) ?usize {
     var count: u8 = 0;
     for (slice, 0..) |item, i| {
         if (item == value) {

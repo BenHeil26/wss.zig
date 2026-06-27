@@ -1,8 +1,35 @@
 const std = @import("std");
 const util = @import("util.zig");
-// const Map = std.StaticStringMap([]const u8);
 
 const URIError = error{InvalidProtocol};
+
+fn parse_query(
+    map: *std.StringHashMap([]const u8),
+    query_str: []const u8,
+) !void {
+    var b: usize = 0;
+    for (query_str, 0..) |c, i| {
+        if (c == '&') {
+            try parse_query_segment(map, query_str[b..i]);
+            b = i;
+        }
+    }
+    if (b < query_str.len) {
+        try parse_query_segment(map, query_str[b..query_str.len]);
+    }
+}
+
+fn parse_query_segment(
+    map: *std.StringHashMap([]const u8),
+    query_segment: []const u8,
+) !void {
+    const sidx = util.index_of(u8, query_segment, '=', 1);
+    if (sidx != null) {
+        try map.put(query_segment[0..sidx.?], query_segment[sidx.? + 1 ..]);
+    } else {
+        try map.put(query_segment, query_segment);
+    }
+}
 
 pub const URI = struct {
     secure: bool,
@@ -10,14 +37,12 @@ pub const URI = struct {
     port: u16,
     path: []const u8,
     query_str: ?[]const u8,
-    // query: Map,
+    query: ?std.StringHashMap([]const u8),
 
     pub fn init(
-        // allocator: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         text: []const u8,
     ) anyerror!@This() {
-        // _ = allocator;
-
         var start: usize = 0;
         var end: ?usize = 0;
 
@@ -60,13 +85,32 @@ pub const URI = struct {
             path = path[0..query_str_idx.?];
         }
 
+        // tokenize each {k, v} in the query string as a map
+        var query: ?std.StringHashMap([]const u8) = null;
+        if (query_str != null) {
+            query = std.StringHashMap([]const u8).init(allocator);
+            try parse_query(&query.?, query_str.?[1..]);
+        }
+
         return .{
             .secure = secure,
             .host = host,
             .port = port,
             .path = path,
             .query_str = query_str,
+            .query = query,
         };
+    }
+
+    pub fn deinit(self: @This()) void {
+        if (self.query != null) self.query.?.deinit();
+    }
+
+    pub fn get_query(
+        self: @This(),
+        key: []const u8,
+    ) ?[]const u8 {
+        return self.query.?.get(key);
     }
 
     pub fn format(
@@ -91,20 +135,45 @@ pub const URI = struct {
     }
 };
 
-test "print URI secure" {
-    const test_uri = "wss://example.com:5050/foo/bar?foobar=blah";
-    const uri: URI = try .init(test_uri);
-
+const tests_uris = [_][]const u8{
+    "wss://example.com:5050/foo/bar?foo=blah",
+    "ws://localhost:430",
+    "wss://127.0.0.1:443/this/is/a/test?foo=bar",
+};
+test "parse URI" {
     const io = std.testing.io;
+    const allocator = std.debug.getDebugInfoAllocator();
 
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file_writer: std.Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
-    const stdout_writer = &stdout_file_writer.interface;
+    for (tests_uris) |test_uri| {
+        const uri: URI = try .init(allocator, test_uri);
+        var stdout_buffer: [1024]u8 = undefined;
+        var stdout_file_writer: std.Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
+        const stdout_writer = &stdout_file_writer.interface;
 
-    try uri.format(stdout_writer);
-    const result = stdout_writer.buffered();
+        try uri.format(stdout_writer);
+        const result = stdout_writer.buffered();
 
-    try stdout_writer.flush();
+        try stdout_writer.flush();
 
-    try std.testing.expectEqualStrings(test_uri, result);
+        try std.testing.expectEqualStrings(test_uri, result);
+    }
+}
+
+test "get query parameters" {
+    const results = [_]?[]const u8{
+        "blah",
+        null,
+        "bar",
+    };
+    const allocator = std.debug.getDebugInfoAllocator();
+
+    for (tests_uris, 0..) |test_uri, i| {
+        const uri: URI = try .init(allocator, test_uri);
+
+        if (results[i] != null) {
+            try std.testing.expectEqualStrings(results[i].?, uri.get_query("foo").?);
+        } else {
+            try std.testing.expectEqual(results[i], null);
+        }
+    }
 }
