@@ -78,6 +78,10 @@ pub const URI = struct {
         start = end.?;
         var path = text[start..];
 
+        if (path.len == 0) {
+            path = "/";
+        }
+
         // strip the query string
         const query_str_idx = util.index_of(u8, path, '?', 1);
         const query_str = if (query_str_idx == null) null else path[query_str_idx.?..];
@@ -135,16 +139,27 @@ pub const URI = struct {
     }
 };
 
-const tests_uris = [_][]const u8{
-    "wss://example.com:5050/foo/bar?baz=boo&foo=blah",
-    "ws://localhost:430",
-    "wss://127.0.0.1:443/this/is/a/test?foo=bar&baz=boo&pop=drop",
+const tests_cases = [_]struct { []const u8, []const u8 }{
+    .{
+        "wss://example.com:5050/foo/bar?baz=boo&foo=blah",
+        "wss://example.com:5050/foo/bar?baz=boo&foo=blah",
+    },
+    .{
+        "ws://localhost:430",
+        "ws://localhost:430/",
+    },
+    .{
+        "wss://127.0.0.1/?foo=bar&baz=boo&pop=drop",
+        "wss://127.0.0.1:443/?foo=bar&baz=boo&pop=drop",
+    },
 };
 test "parse URI" {
     const io = std.testing.io;
     const allocator = std.debug.getDebugInfoAllocator();
 
-    for (tests_uris) |test_uri| {
+    for (tests_cases) |test_case| {
+        const test_uri = test_case.@"0";
+        const expected = test_case.@"1";
         const uri: URI = try .init(allocator, test_uri);
         var stdout_buffer: [1024]u8 = undefined;
         var stdout_file_writer: std.Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
@@ -155,7 +170,7 @@ test "parse URI" {
 
         try stdout_writer.flush();
 
-        try std.testing.expectEqualStrings(test_uri, result);
+        try std.testing.expectEqualStrings(expected, result);
     }
 }
 
@@ -167,7 +182,8 @@ test "get query parameters" {
     };
     const allocator = std.debug.getDebugInfoAllocator();
 
-    for (tests_uris, 0..) |test_uri, i| {
+    for (tests_cases, 0..) |test_case, i| {
+        const test_uri = test_case.@"0";
         const uri: URI = try .init(allocator, test_uri);
 
         if (results[i] != null) {
