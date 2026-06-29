@@ -10,12 +10,12 @@ fn parse_query(
     var b: usize = 0;
     for (query_str, 0..) |c, i| {
         if (c == '&') {
-            try parse_query_segment(map, query_str[b..i]);
+            try parse_query_segment(map, query_str[b + 1 .. i]);
             b = i;
         }
     }
     if (b < query_str.len) {
-        try parse_query_segment(map, query_str[b..query_str.len]);
+        try parse_query_segment(map, query_str[b + 1 .. query_str.len]);
     }
 }
 
@@ -89,7 +89,7 @@ pub const URI = struct {
         var query: ?std.StringHashMap([]const u8) = null;
         if (query_str != null) {
             query = std.StringHashMap([]const u8).init(allocator);
-            try parse_query(&query.?, query_str.?[1..]);
+            try parse_query(&query.?, query_str.?[0..]);
         }
 
         return .{
@@ -136,9 +136,9 @@ pub const URI = struct {
 };
 
 const tests_uris = [_][]const u8{
-    "wss://example.com:5050/foo/bar?foo=blah",
+    "wss://example.com:5050/foo/bar?baz=boo&foo=blah",
     "ws://localhost:430",
-    "wss://127.0.0.1:443/this/is/a/test?foo=bar",
+    "wss://127.0.0.1:443/this/is/a/test?foo=bar&baz=boo&pop=drop",
 };
 test "parse URI" {
     const io = std.testing.io;
