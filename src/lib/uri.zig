@@ -1,8 +1,27 @@
+//! This module provides support for websocket URIs as defined below:
+//!     ws-URI = "ws:" "//" host [ ":" port ] path [ "?" query ]
+//!     wss-URI = "wss:" "//" host [ ":" port ] path [ "?" query ]
+//!
+//!     host = <host, defined in [RFC3986], Section 3.2.2>
+//!     port = <port, defined in [RFC3986], Section 3.2.3>
+//!     path = <path-abempty, defined in [RFC3986], Section 3.3>
+//!     query = <query, defined in [RFC3986], Section 3.4>
+//!
 const std = @import("std");
 const util = @import("util.zig");
 
 const URIError = error{InvalidProtocol};
 
+/// Parses a query string and hydrates a string map with `{k,v}`
+///   where `k` is the query parameter name and `v` is the value
+///   When only a key is provided, `{k,v}` is defined where `k` === `v`
+///
+/// # Parameters
+/// - `map`: the string map to hydrate
+/// - `query_str`: the query string to slice
+///
+/// # Returns
+/// Error when queries can not be parsed
 fn parse_query(
     map: *std.StringHashMap([]const u8),
     query_str: []const u8,
@@ -32,11 +51,17 @@ fn parse_query_segment(
 }
 
 pub const URI = struct {
+    /// Whether this is a secure connection, i.e. if the URI starts with `wss://` or `ws://`
     secure: bool,
+    /// Hostname for the websocket server
     host: []const u8,
+    /// Port for the connection. Defaults to `443` for `wss` and `80` for `ws`
     port: u16,
+    /// The resource name for the request, i.e. everything between the host and query
     path: []const u8,
+    /// optional query parameters passed to the connection
     query_str: ?[]const u8,
+    /// a map containing the {k,v} of each query parameter
     query: ?std.StringHashMap([]const u8),
 
     pub fn init(
