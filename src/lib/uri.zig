@@ -65,6 +65,24 @@ pub const URI = struct {
     query: ?std.StringHashMap([]const u8),
 
     pub fn init(
+        secure: bool,
+        host: []const u8,
+        port: u16,
+        path: []const u8,
+        query_str: ?[]const u8,
+        query: ?std.StringHashMap([]const u8),
+    ) @This() {
+        return .{
+            .secure = secure,
+            .host = host,
+            .port = port,
+            .path = path,
+            .query_str = query_str,
+            .query = query,
+        };
+    }
+
+    pub fn init_from_string(
         allocator: std.mem.Allocator,
         text: []const u8,
     ) anyerror!@This() {
@@ -121,18 +139,11 @@ pub const URI = struct {
             try parse_query(&query.?, query_str.?[0..]);
         }
 
-        return .{
-            .secure = secure,
-            .host = host,
-            .port = port,
-            .path = path,
-            .query_str = query_str,
-            .query = query,
-        };
+        return .init(secure, host, port, path, query_str, query);
     }
 
     pub fn deinit(self: @This()) void {
-        if (self.query != null) self.query.?.deinit();
+        if (self.query != null) @constCast(&self.query.?).deinit();
     }
 
     pub fn get_query(
@@ -185,7 +196,8 @@ test "parse URI" {
     for (tests_cases) |test_case| {
         const test_uri = test_case.@"0";
         const expected = test_case.@"1";
-        const uri: URI = try .init(allocator, test_uri);
+        const uri: URI = try .init_from_string(allocator, test_uri);
+        defer uri.deinit();
         var stdout_buffer: [1024]u8 = undefined;
         var stdout_file_writer: std.Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
         const stdout_writer = &stdout_file_writer.interface;
@@ -209,7 +221,8 @@ test "get query parameters" {
 
     for (tests_cases, 0..) |test_case, i| {
         const test_uri = test_case.@"0";
-        const uri: URI = try .init(allocator, test_uri);
+        const uri: URI = try .init_from_string(allocator, test_uri);
+        defer uri.deinit();
 
         if (results[i] != null) {
             try std.testing.expectEqualStrings(results[i].?, uri.get_query("foo").?);
