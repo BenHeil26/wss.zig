@@ -1,16 +1,88 @@
 //! This module provides support for websocket URIs as defined below:
-//!     ws-URI = "ws:" "//" host [ ":" port ] path [ "?" query ]
-//!     wss-URI = "wss:" "//" host [ ":" port ] path [ "?" query ]
-//!
-//!     host = <host, defined in [RFC3986], Section 3.2.2>
-//!     port = <port, defined in [RFC3986], Section 3.2.3>
-//!     path = <path-abempty, defined in [RFC3986], Section 3.3>
-//!     query = <query, defined in [RFC3986], Section 3.4>
-//!
 const std = @import("std");
 const util = @import("util.zig");
 
 const URIError = error{InvalidProtocol};
+
+/// Parses a URI string into a websocket URI object
+/// Allocates a HashMap of the query parameters
+///
+/// URIs are defined with the following ABNF:
+/// ```
+///     ws-URI = "ws:" "//" host [ ":" port ] path [ "?" query ]
+///     wss-URI = "wss:" "//" host [ ":" port ] path [ "?" query ]
+///
+///     host = <host, defined in [RFC3986], Section 3.2.2>
+///     port = <port, defined in [RFC3986], Section 3.2.3>
+///     path = <path-abempty, defined in [RFC3986], Section 3.3>
+///     query = <query, defined in [RFC3986], Section 3.4>
+/// ```
+///
+/// # Parameters
+/// - `allocator`: the allocator to use
+/// - `text`: the string represenatation of the URI
+///
+/// # Returns
+/// a URI object represenatation of the URI
+pub fn parse_uri(
+    allocator: std.mem.Allocator,
+    text: []const u8,
+) anyerror!URI {
+    var start: usize = 0;
+    var end: ?usize = 0;
+
+    // determine if secure or not
+    end = util.index_of(u8, text, ':', 1);
+    if (end == null) return URIError.InvalidProtocol;
+    const protocol = text[0..end.?];
+
+    var secure = false;
+    if (std.mem.eql(u8, "wss", protocol)) {
+        secure = true;
+    }
+
+    // pull the host
+    start = end.? + 3; // advance past scheme separator
+    end = util.index_of(u8, text, '/', 3);
+    if (end == null or end.? < start) end = text.len;
+    var host = text[start..end.?];
+
+    // grab the port from the host string
+    const port_idx: ?usize = util.index_of(u8, host, ':', 1);
+    const port: u16 =
+        if (port_idx == null)
+            switch (secure) {
+                true => 443,
+                false => 80,
+            }
+        else
+            try std.fmt.parseInt(u16, host[port_idx.? + 1 ..], 10);
+    if (port_idx != null) host = host[0..port_idx.?];
+
+    // everything after host is path and query
+    start = end.?;
+    var path = text[start..];
+
+    if (path.len == 0) {
+        path = "/";
+    }
+
+    // strip the query string
+    const query_str_idx = util.index_of(u8, path, '?', 1);
+    const query_str = if (query_str_idx == null) null else path[query_str_idx.?..];
+    if (query_str_idx != null) {
+        path = path[0..query_str_idx.?];
+    }
+
+    // tokenize each {k, v} in the query string as a map
+    var query: ?std.StringHashMap([]const u8) = null;
+    if (query_str != null) {
+        query = std.StringHashMap([]const u8).init(allocator);
+        try parse_query(&query.?, query_str.?[0..]);
+    }
+
+    return .init(secure, host, port, path, query_str, query);
+}
 
 /// Parses a query string and hydrates a string map with `{k,v}`
 ///   where `k` is the query parameter name and `v` is the value
@@ -22,7 +94,7 @@ const URIError = error{InvalidProtocol};
 ///
 /// # Returns
 /// Error when queries can not be parsed
-fn parse_query(
+pub fn parse_query(
     map: *std.StringHashMap([]const u8),
     query_str: []const u8,
 ) !void {
@@ -82,66 +154,6 @@ pub const URI = struct {
         };
     }
 
-    pub fn init_from_string(
-        allocator: std.mem.Allocator,
-        text: []const u8,
-    ) anyerror!@This() {
-        var start: usize = 0;
-        var end: ?usize = 0;
-
-        // determine if secure or not
-        end = util.index_of(u8, text, ':', 1);
-        if (end == null) return URIError.InvalidProtocol;
-        const protocol = text[0..end.?];
-
-        var secure = false;
-        if (std.mem.eql(u8, "wss", protocol)) {
-            secure = true;
-        }
-
-        // pull the host
-        start = end.? + 3; // advance past scheme separator
-        end = util.index_of(u8, text, '/', 3);
-        if (end == null or end.? < start) end = text.len;
-        var host = text[start..end.?];
-
-        // grab the port from the host string
-        const port_idx: ?usize = util.index_of(u8, host, ':', 1);
-        const port: u16 =
-            if (port_idx == null)
-                switch (secure) {
-                    true => 443,
-                    false => 80,
-                }
-            else
-                try std.fmt.parseInt(u16, host[port_idx.? + 1 ..], 10);
-        if (port_idx != null) host = host[0..port_idx.?];
-
-        // everything after host is path and query
-        start = end.?;
-        var path = text[start..];
-
-        if (path.len == 0) {
-            path = "/";
-        }
-
-        // strip the query string
-        const query_str_idx = util.index_of(u8, path, '?', 1);
-        const query_str = if (query_str_idx == null) null else path[query_str_idx.?..];
-        if (query_str_idx != null) {
-            path = path[0..query_str_idx.?];
-        }
-
-        // tokenize each {k, v} in the query string as a map
-        var query: ?std.StringHashMap([]const u8) = null;
-        if (query_str != null) {
-            query = std.StringHashMap([]const u8).init(allocator);
-            try parse_query(&query.?, query_str.?[0..]);
-        }
-
-        return .init(secure, host, port, path, query_str, query);
-    }
-
     pub fn deinit(self: @This()) void {
         if (self.query != null) @constCast(&self.query.?).deinit();
     }
@@ -196,7 +208,7 @@ test "parse URI" {
     for (tests_cases) |test_case| {
         const test_uri = test_case.@"0";
         const expected = test_case.@"1";
-        const uri: URI = try .init_from_string(allocator, test_uri);
+        const uri: URI = try parse_uri(allocator, test_uri);
         defer uri.deinit();
         var stdout_buffer: [1024]u8 = undefined;
         var stdout_file_writer: std.Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
@@ -221,7 +233,7 @@ test "get query parameters" {
 
     for (tests_cases, 0..) |test_case, i| {
         const test_uri = test_case.@"0";
-        const uri: URI = try .init_from_string(allocator, test_uri);
+        const uri: URI = try parse_uri(allocator, test_uri);
         defer uri.deinit();
 
         if (results[i] != null) {
