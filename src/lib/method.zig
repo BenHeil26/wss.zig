@@ -4,7 +4,7 @@ const std = @import("std");
 
 const MethodErrors = error{MethodNotSupported};
 
-const method_map: std.StaticStringMap([]const u8) = .initComptime(.{
+const method_map: std.StaticStringMap(Method) = .initComptime(.{
     .{ "GET", Method.GET },
     .{ "PUT", Method.PUT },
     .{ "POST", Method.POST },
